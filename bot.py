@@ -208,4 +208,8 @@ async def main():
     print("BOT READY")
     await dp.start_polling(bot)
 
-asyncio.run(main())
+async def main():
+    db.init_db()
+    db.seed_packages()
+    print("BOT READY")
+    await dp.start_polling(bot)
