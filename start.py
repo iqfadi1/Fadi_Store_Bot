@@ -10,13 +10,10 @@ app = FastAPI()
 def root():
     return {"status": "ok"}
 
-async def main():
+async def run():
     asyncio.create_task(bot.main())
-
     port = int(os.environ.get("PORT", 10000))
-    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
-    server = uvicorn.Server(config)
-    await server.serve()
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run())
