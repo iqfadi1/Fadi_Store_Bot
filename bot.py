@@ -49,7 +49,10 @@ async def pkgs(c: CallbackQuery):
             text=f"{name} — {price:,} LBP",
             callback_data=f"buy:{pid}"
         )])
-    await c.message.answer("📦 Select a package:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    await c.message.answer(
+        "📦 Select a package:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+    )
     await c.answer()
 
 @dp.callback_query(F.data.startswith("buy:"))
@@ -59,11 +62,12 @@ async def buy(c: CallbackQuery):
     await c.message.answer("📞 Enter phone number / account ID:")
     await c.answer()
 
-@dp.message()
+# ---------- MAIN MESSAGE HANDLER (IMPORTANT FIX HERE) ----------
+@dp.message(~F.text.startswith("/"))
 async def handler(m: Message):
     uid = m.from_user.id
 
-    # USER ORDER
+    # USER ORDER FLOW
     if uid in STATE:
         pid = STATE.pop(uid)
         oid = db.create_order(uid, pid, m.text)
@@ -75,13 +79,15 @@ async def handler(m: Message):
 
         await bot.send_message(
             ADMIN_ID,
-            f"📦 New Order #{oid}\nUser ID: {uid}\nTarget: {m.text}",
+            f"📦 New Order #{oid}\n"
+            f"User ID: {uid}\n"
+            f"Target: {m.text}",
             reply_markup=kb
         )
         await m.answer("⏳ Request sent. Waiting for approval.")
         return
 
-    # ADMIN INPUT
+    # ADMIN TEXT INPUT
     if uid != ADMIN_ID:
         return
 
@@ -106,7 +112,10 @@ async def handler(m: Message):
         return
 
     if act == "edit_price_new":
-        db.update_package_price(ADMIN_STATE["pid"], int(m.text.replace(",", "")))
+        db.update_package_price(
+            ADMIN_STATE["pid"],
+            int(m.text.replace(",", ""))
+        )
         ADMIN_STATE.clear()
         await m.answer("✅ Price updated", reply_markup=admin_kb())
         return
@@ -139,11 +148,14 @@ async def handler(m: Message):
         amt = int(m.text.replace(",", ""))
         db.add_balance(ADMIN_STATE["uid"], amt)
         bal = db.get_balance(ADMIN_STATE["uid"])
-        await bot.send_message(ADMIN_STATE["uid"], f"💰 Balance added: {amt:,} LBP\nCurrent: {bal:,}")
+        await bot.send_message(
+            ADMIN_STATE["uid"],
+            f"💰 Balance added: {amt:,} LBP\nCurrent: {bal:,} LBP"
+        )
         ADMIN_STATE.clear()
         await m.answer("✅ Balance added", reply_markup=admin_kb())
 
-# ---------- ADMIN ----------
+# ---------- ADMIN PANEL ----------
 def admin_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📦 View Packages", callback_data="a_view")],
@@ -199,6 +211,7 @@ async def a_bal(c: CallbackQuery):
     await c.message.answer("User ID:")
     await c.answer()
 
+# ---------- APPROVE / REJECT ----------
 @dp.callback_query(F.data.startswith("approve:"))
 async def approve(c: CallbackQuery):
     oid = int(c.data.split(":")[1])
@@ -223,6 +236,7 @@ async def reject(c: CallbackQuery):
     await c.message.edit_text(f"❌ Rejected\n{name}")
     await bot.send_message(uid, "❌ Order rejected")
 
+# ---------- START ----------
 async def main():
     db.init_db()
     db.seed_packages()
