@@ -27,7 +27,7 @@ def user_kb():
 async def start(m: Message):
     db.ensure_user(m.from_user.id)
     await m.answer(
-        "👋 Welcome to Fadi Store\n\n"
+        "👋 Welcome to Ushare Alfa\n\n"
         "✔ Fast activation\n"
         "✔ Secure balance system\n\n"
         "Choose an option below 👇",
@@ -242,3 +242,4 @@ async def main():
     db.seed_packages()
     print("BOT READY")
     await dp.start_polling(bot)
+
