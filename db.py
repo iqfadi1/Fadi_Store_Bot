@@ -7,17 +7,22 @@ def conn():
     return sqlite3.connect(DB)
 
 
+# ================= INIT =================
+
 def init_db():
     c = conn()
     cur = c.cursor()
 
+    # USERS
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users(
-        user_id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        phone TEXT UNIQUE,
         balance INTEGER DEFAULT 0
     )
     """)
 
+    # PACKAGES
     cur.execute("""
     CREATE TABLE IF NOT EXISTS packages(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,12 +32,13 @@ def init_db():
     )
     """)
 
+    # ORDERS
     cur.execute("""
     CREATE TABLE IF NOT EXISTS orders(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
         package_id INTEGER,
-        target TEXT,
+        user_number TEXT,
         status TEXT DEFAULT 'pending'
     )
     """)
@@ -41,66 +47,63 @@ def init_db():
     c.close()
 
 
-def seed_packages():
-    c = conn()
-
-    # حذف أي باكجات قديمة
-    c.execute("DELETE FROM packages")
-
-    # إضافة البكجات الجديدة
-    c.executemany(
-        "INSERT INTO packages(name, price, active) VALUES(?,?,1)",
-        [
-            ("11 GB Package", 870000),
-            ("22 GB Package", 1200000),
-            ("33 GB Package", 1450000),
-            ("44 GB Package", 1860000),
-            ("55 GB Package", 2280000),
-        ]
-    )
-
-    c.commit()
-    c.close()
-
-
 # ================= USERS =================
 
-def ensure_user(uid):
+def create_user(phone, password_hash):
     c = conn()
     c.execute(
-        "INSERT OR IGNORE INTO users(user_id,balance) VALUES(?,0)",
-        (uid,)
+        "INSERT INTO users(phone, balance) VALUES(?,0)",
+        (phone,)
     )
     c.commit()
     c.close()
 
 
-def get_balance(uid):
+def get_user_by_phone(phone):
     c = conn()
     r = c.execute(
-        "SELECT balance FROM users WHERE user_id=?",
+        "SELECT * FROM users WHERE phone=?",
+        (phone,)
+    ).fetchone()
+    c.close()
+    return dict(zip(["id", "phone", "balance"], r)) if r else None
+
+
+def get_user_by_id(uid):
+    c = conn()
+    r = c.execute(
+        "SELECT * FROM users WHERE id=?",
         (uid,)
     ).fetchone()
     c.close()
-    return r[0] if r else 0
+    return dict(zip(["id", "phone", "balance"], r)) if r else None
 
 
-def add_balance(uid, amt):
-    ensure_user(uid)
+def add_balance(phone, amt):
     c = conn()
     c.execute(
-        "UPDATE users SET balance = balance + ? WHERE user_id=?",
-        (amt, uid)
+        "UPDATE users SET balance = balance + ? WHERE phone=?",
+        (amt, phone)
     )
     c.commit()
     c.close()
 
 
-def deduct_balance(uid, amt):
+def set_balance(phone, amt):
     c = conn()
     c.execute(
-        "UPDATE users SET balance = balance - ? WHERE user_id=?",
-        (amt, uid)
+        "UPDATE users SET balance = ? WHERE phone=?",
+        (amt, phone)
+    )
+    c.commit()
+    c.close()
+
+
+def deduct_balance(phone, amt):
+    c = conn()
+    c.execute(
+        "UPDATE users SET balance = balance - ? WHERE phone=?",
+        (amt, phone)
     )
     c.commit()
     c.close()
@@ -108,13 +111,21 @@ def deduct_balance(uid, amt):
 
 # ================= PACKAGES =================
 
-def list_packages():
+def list_packages(active_only=True):
     c = conn()
-    r = c.execute(
-        "SELECT id,name,price FROM packages WHERE active=1"
-    ).fetchall()
+    if active_only:
+        r = c.execute(
+            "SELECT id,name,price,active FROM packages WHERE active=1"
+        ).fetchall()
+    else:
+        r = c.execute(
+            "SELECT id,name,price,active FROM packages"
+        ).fetchall()
     c.close()
-    return r
+    return [
+        dict(zip(["id", "name", "price", "active"], row))
+        for row in r
+    ]
 
 
 def add_package(name, price):
@@ -127,7 +138,7 @@ def add_package(name, price):
     c.close()
 
 
-def update_package_price(pid, price):
+def set_package_price(pid, price):
     c = conn()
     c.execute(
         "UPDATE packages SET price=? WHERE id=?",
@@ -137,7 +148,7 @@ def update_package_price(pid, price):
     c.close()
 
 
-def update_package_name(pid, name):
+def set_package_name(pid, name):
     c = conn()
     c.execute(
         "UPDATE packages SET name=? WHERE id=?",
@@ -159,11 +170,11 @@ def disable_package(pid):
 
 # ================= ORDERS =================
 
-def create_order(uid, pid, target):
+def create_order(uid, package_id, user_number):
     c = conn()
     c.execute(
-        "INSERT INTO orders(user_id,package_id,target) VALUES(?,?,?)",
-        (uid, pid, target)
+        "INSERT INTO orders(user_id,package_id,user_number) VALUES(?,?,?)",
+        (uid, package_id, user_number)
     )
     c.commit()
     oid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -174,13 +185,47 @@ def create_order(uid, pid, target):
 def get_order(oid):
     c = conn()
     r = c.execute("""
-    SELECT o.user_id,o.status,p.price,p.name
+    SELECT 
+        o.id,
+        u.phone,
+        o.user_number,
+        p.name,
+        p.price,
+        u.balance,
+        o.status
     FROM orders o
-    JOIN packages p ON o.package_id=p.id
+    JOIN users u ON o.user_id = u.id
+    JOIN packages p ON o.package_id = p.id
     WHERE o.id=?
     """, (oid,)).fetchone()
     c.close()
-    return r
+
+    if not r:
+        return None
+
+    keys = [
+        "id", "phone", "user_number",
+        "package_name", "package_price",
+        "balance", "status"
+    ]
+    return dict(zip(keys, r))
+
+
+def list_user_orders(uid):
+    c = conn()
+    r = c.execute("""
+    SELECT o.id,p.name,p.price,o.status
+    FROM orders o
+    JOIN packages p ON o.package_id=p.id
+    WHERE o.user_id=?
+    ORDER BY o.id DESC
+    """, (uid,)).fetchall()
+    c.close()
+
+    return [
+        dict(zip(["id", "package", "price", "status"], row))
+        for row in r
+    ]
 
 
 def update_order_status(oid, status):
@@ -191,3 +236,9 @@ def update_order_status(oid, status):
     )
     c.commit()
     c.close()
+
+
+# ================= HELPERS =================
+
+def fmt_lbp(x: int) -> str:
+    return f"{x:,}"
